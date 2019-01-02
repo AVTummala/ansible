@@ -1,0 +1,191 @@
+---
+- include_vars: ../vars/main.yml
+
+- name: Create VPC
+  ec2_vpc_net:  
+    name: "{{ vpc_name }}"
+    cidr_block: "{{ vpc_cidr }}"
+    region: "{{ aws_region }}"
+    state: "present"
+  register: vpc
+
+- name: Create a public subnet
+  ec2_vpc_subnet:
+    vpc_id: "{{ vpc.vpc.id }}"
+    cidr: "{{ public_az_cidr }}"
+    region: "{{ aws_region }}"
+    az: "{{ public_az }}"
+    state: "present"
+    tags:
+      Name: "{{ public_az }}_public"
+  register: pub_subnet_az
+
+- name: Create a private subnet
+  ec2_vpc_subnet:
+    vpc_id: "{{ vpc.vpc.id }}"
+    cidr: "{{ private_az_cidr }}"
+    region: "{{ aws_region }}"
+    az: "{{ private_az }}"
+    state: "present"
+    tags:
+      Name: "{{ private_az }}_public"
+  register: pr_subnet_az
+
+- name: Create the Internet gateway for the VPC
+  ec2_vpc_igw:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    state:  "present"
+  register: vpc_igw
+
+- name: Create tag to IG
+  ec2_tag:
+    resource: "{{ vpc_igw.gateway_id }}"
+    region: "{{ aws_region }}"
+    state: "present"
+    tags:
+      Name: "{{ vpc_name }}_igw"
+
+- name: Create NAT Gateway and associate it with the public subnet
+  ec2_vpc_nat_gateway:
+    state: present
+    region: "{{ aws_region }}"
+    subnet_id: "{{ pub_subnet_az.subnet.id }}"
+    wait: yes
+    if_exist_do_not_create: true
+  register: nat_gateway
+
+- name: Create public route table with IG
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    tags:
+      Name: "{{ vpc_name }}_pub_rt"
+    subnets:
+      - "{{ pub_subnet_az.subnet.id }}"
+    routes:
+      - dest: "{{ public_cidr }}"
+        gateway_id: "{{ vpc_igw.gateway_id }}"
+  register: public_route_table
+
+- name: Create private route table with NATG
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    tags:
+      Name: "{{ vpc_name }}_pr_rt"
+    subnets:
+      - "{{ pr_subnet_az.subnet.id }}"
+    routes:
+      - dest: "{{ public_cidr }}"
+        gateway_id: "{{ nat_gateway.nat_gateway_id }}"
+  register: private_route_table
+
+- name: Create DBServer security group
+  ec2_group:
+    name: "{{ private_sg_name }}"
+    region: "{{ aws_region }}"
+    description: "Private instance security group"
+    vpc_id: "{{ vpc.vpc.id }}"
+    tags:
+      Name: "{{ private_sg_name }}"
+    rules:
+      - proto:      "tcp"
+        from_port:  "1433"
+        to_port:    "1433"
+        cidr_ip:    "{{ public_az_cidr }}"
+      - proto:      "tcp"
+        from_port:  "3306"
+        to_port:    "3306"
+        cidr_ip:    "{{ public_az_cidr }}"
+    rules_egress:
+      - proto:      "tcp"
+        from_port:  "80"
+        to_port:    "80"
+        cidr_ip:    "{{ public_cidr }}"
+      - proto:      "tcp"
+        from_port:  "443"
+        to_port:    "443"
+        cidr_ip:    "{{ public_cidr }}"
+  register: private_sg
+
+- name: Create WEBServer security group
+  ec2_group:
+    name: "{{ public_sg_name }}"
+    region: "{{ aws_region }}"
+    description: "Public instance security group"
+    vpc_id: "{{ vpc.vpc.id }}"
+    tags:
+      Name: "{{ public_sg_name }}"
+    rules:
+      - proto:      "tcp"
+        from_port:  "80"
+        to_port:    "80"
+        cidr_ip:    "{{ public_cidr }}"
+      - proto:      "tcp"
+        from_port:  "443"
+        to_port:    "443"
+        cidr_ip:    "{{ public_cidr }}"
+      - proto:      "tcp"
+        from_port:  "22"
+        to_port:    "22"
+        cidr_ip:    "{{ my_cidr }}"
+    rules_egress:
+      - proto:      "tcp"
+        from_port:  "1433"
+        to_port:    "1433"
+        cidr_ip: "{{ private_az_cidr }}"
+      - proto:      "tcp"
+        from_port:  "80"
+        to_port:    "80"
+        cidr_ip:    "{{ public_cidr }}"
+      - proto:      "tcp"
+        from_port:  "443"
+        to_port:    "443"
+        cidr_ip:    "{{ public_cidr }}"
+      - proto:      "tcp"
+        from_port:  "3306"
+        to_port:    "3306"
+        cidr_ip: "{{ private_az_cidr }}"
+  register: public_sg
+
+- name: Create ec2 key with your existing key
+  ec2_key:
+    name: ansible_access_key
+    region: "{{ aws_region }}"
+    key_material: "{{ lookup('file', key_file_path) }}"
+    state: present 
+  
+- name: Create N number of ec2-instances
+  ec2:
+    key_name: ansible_access_key
+    region: "{{ aws_region }}"
+    group: "{{ public_sg_name }}"
+    instance_type: t2.micro
+    image: "{{ ami }}"
+    wait: true
+    count: "{{instance_number}}"
+    instance_tags:
+       purpose: webserver
+    vpc_subnet_id: "{{ pub_subnet_az.subnet.id }}"
+    assign_public_ip: yes
+  register: ec2
+
+- name: Add new instance to host group
+  add_host:
+    hostname: "{{ item.public_ip }}"
+    groupname: launched
+  with_items: "{{ ec2.instances }}"
+
+- name: Wait for SSH to come up
+  wait_for:
+    host: "{{ item.public_dns_name }}"
+    port: 22
+    delay: 60
+    timeout: 320
+    state: started
+  with_items: "{{ ec2.instances }}"
+
+- name: Add instances to known_hosts file
+  shell: "ssh-keyscan -H {{ item.public_ip }} >> ~/.ssh/known_hosts"
+  with_items: "{{ ec2.instances }}"

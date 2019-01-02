@@ -1,0 +1,29 @@
+---
+- name: Provision Scenario 2 VPC
+  hosts: localhost
+  connection: local
+  gather_facts: False
+  become: False
+  roles:
+      - vpc-scenario2
+
+- name: Install python
+  vars_files:
+    - /etc/ansible/roles/vpc-scenario2/vars/main.yml
+  hosts: launched
+  user: "{{ instance_user }}"
+  sudo: True
+  gather_facts: False
+  tasks:
+    - name: install python
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)    
+
+- name: Configure instance(s)
+  vars_files:
+    - /etc/ansible/roles/vpc-scenario2/vars/main.yml
+  hosts: launched
+  user: "{{ instance_user }}"
+  sudo: True
+  gather_facts: True
+  roles:
+      - configure-docker

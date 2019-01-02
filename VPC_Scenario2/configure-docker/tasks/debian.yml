@@ -1,0 +1,48 @@
+---
+
+- name: Installing required packages
+  apt: name={{ item }} state=installed force=yes
+  with_items:
+    - apt-transport-https
+    - ca-certificates
+    - curl
+    - software-properties-common
+
+- name: Debian | repository - add the GPG key
+  apt_key:
+    url: '{{ debian_ppa_key }}'
+    id: '{{ debian_key_id }}'
+    state: present
+  when: ansible_distribution == 'Debian'
+
+- name: Add Debian repository to install from
+  apt_repository:
+    repo: '{{ debian_ppa_repo }}'
+    state: present
+  when: ansible_distribution == 'Debian'
+
+- name: Ubuntu | repository - add the GPG key
+  apt_key:
+    url: '{{ ubuntu_ppa_key }}'
+    id: '{{ debian_key_id }}'
+    state: present
+  when: ansible_distribution == 'Ubuntu'
+
+- name: Add Ubuntu repository to install from
+  apt_repository:
+    repo: '{{ ubuntu_ppa_repo }}'
+    state: present
+  when: ansible_distribution == 'Ubuntu'
+
+- name: docker-ce install
+  apt:
+    name: docker-ce
+    state: installed
+
+- name: Start docker service
+  service:
+    name: docker
+    state: started
+
+- name: Start hello-world container
+  command: docker run hello-world

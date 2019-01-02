@@ -1,0 +1,29 @@
+---
+
+# Adjust these to your specific needs...
+
+# AWS parameters
+aws_region: "us-east-2"
+public_az: "{{ aws_region }}a"
+private_az: "{{ aws_region }}a"
+
+# VPC parameters
+vpc_name: "vpc-ansible"
+vpc_cidr: "10.0.0.0/16"
+
+# Subnet CIDR defs
+public_az_cidr:  "10.0.0.0/24"
+private_az_cidr: "10.0.1.0/24"
+
+# Access location CIDR defs (used in NACLs and SGs)
+public_cidr: "0.0.0.0/0"
+my_cidr: "0.0.0.0/0"
+
+# security group parameters
+private_sg_name: "PrivateSecurityGroup"
+public_sg_name:  "PublicSecurityGroup"
+
+# ec2 instance launch details
+ami: ami-2581aa40  # The ami with which your instance launches
+instance_user: ubuntu # The login user for your ec2-instances
+key_file_path: "/home/ubuntu/id_rsa.pub"

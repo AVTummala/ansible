@@ -1,0 +1,9 @@
+---
+# Installation Keys and Repos
+debian_ppa_repo: deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_distribution_release }} stable
+debian_ppa_key: https://download.docker.com/linux/debian/gpg
+debian_key_id: 0EBFCD88
+ubuntu_ppa_repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+ubuntu_ppa_key: https://download.docker.com/linux/ubuntu/gpg
+
+
